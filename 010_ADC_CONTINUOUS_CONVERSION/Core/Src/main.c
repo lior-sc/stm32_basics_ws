@@ -50,6 +50,7 @@ I2S_HandleTypeDef hi2s3;
 SPI_HandleTypeDef hspi1;
 
 /* USER CODE BEGIN PV */
+uint32_t analog_read_value = 0;
 
 /* USER CODE END PV */
 
@@ -116,6 +117,15 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+
+    /**@note: we do not need to start the ADC since it is continuously sampling and converting */
+
+    // wait for nearest conversion to end
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 1);
+    //get value
+    analog_read_value = HAL_ADC_GetValue(&hadc1);
+    HAL_Delay(500);
   }
   /* USER CODE END 3 */
 }
@@ -212,6 +222,13 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
+
+  /** start ADC continuous conversion (defined before)
+   * This is actually less efficient if we are not using the DMA.
+   * If we do use the DMA we can use this functionality to fill a sample buffer
+   * which will be filled automatically without taking processing power from
+   * the CPU.*/
+  HAL_ADC_Start(&hadc1);
 
   /* USER CODE END ADC1_Init 2 */
 
