@@ -138,9 +138,13 @@ int main(void)
     for(int i=0;i<4;i++)
     {
     	htim4_ch_pulses[i] = pulse_value;
+    	// stop timer channel
     	HAL_TIM_PWM_Stop(&htim4, htim4_channel[i]);
+    	// change pulse time
     	htim4_sConfigOC.Pulse = htim4_ch_pulses[i];
+    	// configure channel with new pulse time
     	HAL_TIM_PWM_ConfigChannel(&htim4, &htim4_sConfigOC, htim4_channel[i]);
+    	// start timer with new pulse time configuration
     	HAL_TIM_PWM_Start(&htim4, htim4_channel[i]);
     }
 
