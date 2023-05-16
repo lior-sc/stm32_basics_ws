@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stdbool.h"
 
 /* USER CODE END Includes */
 
@@ -32,12 +33,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define OUT_X_L	0x28
-#define OUT_X_H	0x29
-#define OUT_Y_L 0x2A
-#define OUT_Y_H 0x2B
-#define OUT_Z_L 0x2C
-#define OUT_Z_H 0x2D
+
+#define SPI_READ 				0x80
+#define SPI_READ_MULTIPLE		0xC0
+#define SPI_WRITE				0x00
+
+#define OUT_X					0x29
 
 /* USER CODE END PD */
 
@@ -66,6 +67,7 @@ static void MX_SPI1_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
+bool LIS302DL_get_accelerations();
 
 /* USER CODE END PFP */
 
@@ -107,9 +109,8 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
-  uint8_t spi_tx_buffer[10] = {0};
-  uint8_t spi_rx_buffer[10] = {0};
-  HAL_SPI_TransmitReceive(&hspi1, pTxData, pRxData, Size, Timeout)(&hspi1, pData, Size, Timeout)
+
+  LIS302DL_setup();
 
   /* USER CODE END 2 */
 
@@ -117,6 +118,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  LIS302DL_get_accelerations();
+
     /* USER CODE END WHILE */
     MX_USB_HOST_Process();
 
@@ -261,7 +264,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -296,7 +299,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
@@ -305,12 +308,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
                           |Audio_RST_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : CS_I2C_SPI_Pin */
-  GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
+  /*Configure GPIO pin : LIS302DL_CS_Pin */
+  GPIO_InitStruct.Pin = LIS302DL_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(CS_I2C_SPI_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(LIS302DL_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OTG_FS_PowerSwitchOn_Pin */
   GPIO_InitStruct.Pin = OTG_FS_PowerSwitchOn_Pin;
@@ -374,7 +377,68 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void accelerometer_setup
+void LIS302DL_setup()
+{
+	// reset CS pin to high
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_SET);
+
+	// set tx buffer
+	uint8_t addr = 0x20;
+	uint8_t tx_buff[3];
+	uint8_t rx_buff[3];
+
+	tx_buff[0] = SPI_WRITE; 	// SPI write
+	tx_buff[1] = addr;			// address of control register
+	tx_buff[2] = 0b01000111;
+
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
+	HAL_SPI_Transmit(&hspi1, tx_buff, 3, 100);
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_SET);
+
+	addr = 0x0F;
+	tx_buff[0] = SPI_READ;
+	tx_buff[1] = addr;
+
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
+	HAL_SPI_Transmit(&hspi1, tx_buff, 2, 100);
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
+	HAL_SPI_Receive(&hspi1, rx_buff, 1, 100);
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_SET);
+	HAL_Delay(1);
+	return;
+}
+
+bool LIS302DL_get_accelerations()
+{
+	uint8_t addr = OUT_X;
+
+	// reset CS pin to high
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_SET);
+
+	// create buffers for getting the msg
+	uint8_t tx_buffer[2];
+	uint8_t rx_buffer[6] = {0};
+
+	tx_buffer[0] = SPI_READ;
+	tx_buffer[1] = addr;
+
+
+	// pull CS low to start reading
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
+	// start transmit receive to get data
+	HAL_SPI_TransmitReceive(&hspi1, tx_buffer, rx_buffer, 6, 100);
+	// pull CS high to stop transmission
+	HAL_GPIO_WritePin(LIS302DL_CS_GPIO_Port, LIS302DL_CS_Pin, GPIO_PIN_RESET);
+
+	// since the sensor is configured to be MSB first:
+	int16_t x_acceleration = ((int16_t)rx_buffer[0] << 8) | rx_buffer[1];
+	int16_t y_acceleration = ((int16_t)rx_buffer[2] << 8) | rx_buffer[3];
+	int16_t z_acceleration = ((int16_t)rx_buffer[4] << 8) | rx_buffer[5];
+
+	return true;
+}
+
 
 /* USER CODE END 4 */
 
